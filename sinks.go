@@ -1,7 +1,7 @@
 package chans
 
 // ToSlice returns all values emitted by src.
-func ToSlice[T any](done <-chan struct{}, src <-chan T) []T {
+func ToSlice[T any](done Done, src <-chan T) []T {
 	var accum []T
 	for {
 		select {

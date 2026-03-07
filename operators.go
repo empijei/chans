@@ -7,16 +7,8 @@ import (
 // TODO write in the docs that done means what it means.
 // TODO write that closure is propagated from src to returned chans.
 
-// Sleep waits dur and returns.
-func Sleep(done <-chan struct{}, dur time.Duration) {
-	select {
-	case <-done:
-	case <-time.After(dur):
-	}
-}
-
 // TrySend tries to send the value, blocking.
-func TrySend[T any](done <-chan struct{}, sink chan<- T, v T) (ok bool) {
+func TrySend[T any](done Done, sink chan<- T, v T) (ok bool) {
 	select {
 	case sink <- v:
 	case <-done:
@@ -30,7 +22,7 @@ func TrySend[T any](done <-chan struct{}, sink chan<- T, v T) (ok bool) {
 // This introduces an emission delay and buffering of the last element.
 //
 // Debounce spawns a goroutine.
-func Debounce[T any](done <-chan struct{}, src <-chan T, window time.Duration) <-chan T {
+func Debounce[T any](done Done, src <-chan T, window time.Duration) <-chan T {
 	ret := make(chan T)
 	go func() {
 		defer close(ret)
@@ -65,7 +57,7 @@ func Debounce[T any](done <-chan struct{}, src <-chan T, window time.Duration) <
 // All values after the first of the window are discarded.
 //
 // Throttle spawns a goroutine.
-func Throttle[T any](done <-chan struct{}, src <-chan T, window time.Duration) <-chan T {
+func Throttle[T any](done Done, src <-chan T, window time.Duration) <-chan T {
 	ret := make(chan T)
 	go func() {
 		defer close(ret)
@@ -99,7 +91,7 @@ func Throttle[T any](done <-chan struct{}, src <-chan T, window time.Duration) <
 // This introduces an emission delay and buffering of one element.
 //
 // Window spawns a goroutine.
-func Window[T any](done <-chan struct{}, src <-chan T, window time.Duration) <-chan T {
+func Window[T any](done Done, src <-chan T, window time.Duration) <-chan T {
 	ret := make(chan T)
 	go func() {
 		defer close(ret)

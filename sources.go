@@ -3,7 +3,7 @@ package chans
 // FromSlice emits all values from src.
 //
 // FromSlice spawns a goroutine.
-func FromSlice[T any](done <-chan struct{}, src []T) <-chan T {
+func FromSlice[T any](done Done, src []T) <-chan T {
 	ret := make(chan T)
 	go func() {
 		defer close(ret)
