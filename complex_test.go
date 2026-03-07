@@ -91,3 +91,51 @@ func TestUnboundWarn(t *testing.T) {
 	for range unbound {
 	}
 }
+
+func TestMulticast(t *testing.T) {
+	ctx := tst.Go(t)
+	src := make(chan int)
+	m := chans.NewMulticast(ctx.Done(), src)
+
+	s1 := m.Subscribe(ctx.Done())
+	s2 := m.Subscribe(ctx.Done())
+
+	go func() {
+		src <- 42
+		src <- 43
+		close(src)
+	}()
+
+	tst.Is(42, <-s1, t)
+	tst.Is(42, <-s2, t)
+	tst.Is(43, <-s1, t)
+	tst.Is(43, <-s2, t)
+
+	_, ok1 := <-s1
+	_, ok2 := <-s2
+	tst.Is(false, ok1, t)
+	tst.Is(false, ok2, t)
+}
+
+func TestMulticastLateSubscribe(t *testing.T) {
+	ctx := tst.Go(t)
+	src := make(chan int)
+	m := chans.NewMulticast(ctx.Done(), src)
+
+	s1 := m.Subscribe(ctx.Done())
+
+	go func() {
+		src <- 42
+	}()
+
+	tst.Is(42, <-s1, t)
+
+	s2 := m.Subscribe(ctx.Done())
+	go func() {
+		src <- 43
+		close(src)
+	}()
+
+	tst.Is(43, <-s1, t)
+	tst.Is(43, <-s2, t)
+}

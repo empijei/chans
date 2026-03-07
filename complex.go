@@ -63,3 +63,74 @@ func Unbound[T any](done Done, src <-chan T, warnThreshold uint, warn func(above
 	}()
 	return ret
 }
+
+type sub[T any] struct {
+	done Done
+	c    chan T
+}
+
+// Multicast replicates all emissions from a source on all currently active subscriptions.
+type Multicast[T any] struct {
+	subs chan sub[T]
+	done Done
+}
+
+// Subscribe returns all emissions from src.
+//
+// If a subscription doesn't consume a value, the multicast blocks and waits for it
+// to do so, so it's important that unused subscriptions are cancelled by closing done.
+func (m *Multicast[T]) Subscribe(done Done) <-chan T {
+	c := make(chan T)
+	select {
+	case m.subs <- sub[T]{done: done, c: c}:
+	case <-done:
+		close(c)
+	case <-m.done:
+		close(c)
+	}
+	return c
+}
+
+// NewMulticast returns a new Multicast from src.
+//
+// It spawns a goroutine.
+func NewMulticast[T any](done Done, src <-chan T) Multicast[T] {
+	m := Multicast[T]{
+		subs: make(chan sub[T]),
+		done: done,
+	}
+	go m.run(src)
+	return m
+}
+
+func (m *Multicast[T]) run(src <-chan T) {
+	subscriptions := make(map[chan T]Done)
+	defer func() {
+		for s := range subscriptions {
+			close(s)
+		}
+	}()
+
+	for {
+		select {
+		case <-m.done:
+			return
+		case newSub := <-m.subs:
+			subscriptions[newSub.c] = newSub.done
+		case v, ok := <-src:
+			if !ok {
+				return
+			}
+			for s, sDone := range subscriptions {
+				select {
+				case s <- v:
+				case <-sDone:
+					delete(subscriptions, s)
+					close(s)
+				case <-m.done:
+					return
+				}
+			}
+		}
+	}
+}
