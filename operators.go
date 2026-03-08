@@ -1,6 +1,7 @@
 package chans
 
 import (
+	"sync/atomic"
 	"time"
 )
 
@@ -152,5 +153,166 @@ func Concat[T any](done Done, srcs ...<-chan T) <-chan T {
 			}
 		}
 	}()
+	return ret
+}
+
+// Map transforms every emission of the source into a projection of that emission.
+//
+// Map spawns a new goroutine.
+func Map[I, O any](done Done, src <-chan I, projection func(I) O) <-chan O {
+	ret, _ := MapTry(done, src, func(i I) (o O, err error) {
+		return projection(i), nil
+	})
+	return ret
+}
+
+// MapTry is like [Map] but with a projection function that may fail.
+func MapTry[I, O any](done Done, src <-chan I, projection func(I) (O, error)) (<-chan O, <-chan error) {
+	ret := make(chan O)
+	errs := make(chan error)
+	go func() {
+		defer close(ret)
+		defer close(errs)
+		for {
+			select {
+			case i, ok := <-src:
+				if !ok {
+					return
+				}
+				o, err := projection(i)
+				if err != nil {
+					if !TrySend(done, errs, err) {
+						return
+					}
+					break
+				}
+				if !TrySend(done, ret, o) {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	return ret, errs
+}
+
+// MapParallel is like [Map] but calls projection with the given level of parallelism.
+// Output order is not guaranteed.
+//
+// MapParallel spawns a new goroutine per parallelism level specified.
+func MapParallel[I, O any](done Done, src <-chan I, parallelism int, projection func(I) O) <-chan O {
+	ret, _ := MapParallelTry(done, src, parallelism, func(i I) (O, error) {
+		return projection(i), nil
+	})
+	return ret
+}
+
+// MapParallelTry is like [MapParallel] and [MapTry], together.
+func MapParallelTry[I, O any](done Done, src <-chan I, parallelism int, projection func(I) (O, error)) (<-chan O, <-chan error) {
+	if parallelism <= 0 {
+		parallelism = 1
+	}
+
+	ret := make(chan O)
+	errs := make(chan error)
+	var liveRoutines atomic.Int64
+	liveRoutines.Add(int64(parallelism))
+	for range parallelism {
+		go func() {
+			defer func() {
+				if liveRoutines.Add(-1) > 0 {
+					return
+				}
+				close(ret)
+				close(errs)
+			}()
+
+			for {
+				select {
+				case i, ok := <-src:
+					if !ok {
+						return
+					}
+					o, err := projection(i)
+					if err != nil {
+						if !TrySend(done, errs, err) {
+							return
+						}
+						break
+					}
+					if !TrySend(done, ret, o) {
+						return
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
+	}
+	return ret, errs
+}
+
+// Filter emits only values that filter returns true for.
+//
+// Filter spawns a new goroutine.
+func Filter[T any](done Done, src <-chan T, filter func(T) bool) <-chan T {
+	ret := make(chan T)
+	go func() {
+		defer close(ret)
+		for {
+			select {
+			case i, ok := <-src:
+				if !ok {
+					return
+				}
+				if !filter(i) {
+					continue
+				}
+				if !TrySend(done, ret, i) {
+					return
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	return ret
+}
+
+// Merge concurrently merges all the emissions from all the provided sources.
+//
+// It spawns len(srcs) goroutines.
+func Merge[T any](done Done, srcs ...<-chan T) <-chan T {
+	ret := make(chan T)
+	if len(srcs) == 0 {
+		close(ret)
+		return ret
+	}
+	var liveRoutines atomic.Int64
+	liveRoutines.Add(int64(len(srcs)))
+	for _, src := range srcs {
+		go func() {
+			defer func() {
+				if liveRoutines.Add(-1) > 0 {
+					return
+				}
+				close(ret)
+			}()
+			for {
+				select {
+				case v, ok := <-src:
+					if !ok {
+						return
+					}
+					if !TrySend(done, ret, v) {
+						return
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
+	}
 	return ret
 }
