@@ -77,18 +77,44 @@ type Multicast[T any] struct {
 
 // Subscribe returns all emissions from src.
 //
-// If a subscription doesn't consume a value, the multicast blocks and waits for it
-// to do so, so it's important that unused subscriptions are cancelled by closing done.
-func (m *Multicast[T]) Subscribe(done Done) <-chan T {
-	c := make(chan T)
+// If a subscription is too slow at consuming values the multicast blocks,
+// so it's important that unused subscriptions are cancelled by closing done.
+//
+// Multicast uses internal buffering, so the fact that the source emitted two values
+// doesn't imply that all subscribers have received the first one.
+//
+// Subscribe spawns a goroutine.
+func (m *Multicast[T]) Subscribe(done Done, buffer int) <-chan T {
+	ret := make(chan T, buffer)
+	s := make(chan T)
 	select {
-	case m.subs <- sub[T]{done: done, c: c}:
+	case m.subs <- sub[T]{done: done, c: s}:
 	case <-done:
-		close(c)
+		close(ret)
+		return ret
 	case <-m.done:
-		close(c)
+		close(ret)
+		return ret
 	}
-	return c
+	go func() {
+		defer close(ret)
+		for {
+			select {
+			case v, ok := <-s:
+				if !ok {
+					return
+				}
+				if !TrySend(done, ret, v) {
+					return
+				}
+			case <-done:
+				return
+			case <-m.done:
+				return
+			}
+		}
+	}()
+	return ret
 }
 
 // NewMulticast returns a new Multicast from src.

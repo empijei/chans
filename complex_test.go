@@ -9,18 +9,18 @@ import (
 )
 
 func TestUnboundPass(t *testing.T) {
-	ctx := tst.Go(t)
+	done := tst.Go(t).Done()
 	data := []int{1, 2, 3, 4, 5}
-	src := chans.FromSlice(ctx.Done(), data)
-	got := chans.ToSlice(ctx.Done(), chans.Unbound(ctx.Done(), src, 0, nil))
+	src := chans.FromSlice(done, data)
+	got := chans.ToSlice(done, chans.Unbound(done, src, 0, nil))
 	tst.Is(data, got, t)
 }
 
 func TestUnboundOverflow(t *testing.T) {
-	ctx := tst.Go(t)
+	done := tst.Go(t).Done()
 	src := make(chan int)
 	const size = 1000
-	unbound := chans.Unbound(ctx.Done(), src, 0, nil)
+	unbound := chans.Unbound(done, src, 0, nil)
 
 	// Send everything without reading.
 	go func() {
@@ -31,7 +31,7 @@ func TestUnboundOverflow(t *testing.T) {
 	}()
 
 	// Wait a bit to ensure they are all in the buffer.
-	chans.Sleep(ctx.Done(), 50*time.Millisecond)
+	chans.Sleep(done, 50*time.Millisecond)
 
 	var got []int
 	for range size {
@@ -41,7 +41,7 @@ func TestUnboundOverflow(t *testing.T) {
 }
 
 func TestUnboundWarn(t *testing.T) {
-	ctx := tst.Go(t)
+	done := tst.Go(t).Done()
 	src := make(chan int)
 	warns := make(chan bool, 10)
 	warn := func(above bool) {
@@ -49,7 +49,7 @@ func TestUnboundWarn(t *testing.T) {
 	}
 
 	const threshold = 10
-	unbound := chans.Unbound(ctx.Done(), src, threshold, warn)
+	unbound := chans.Unbound(done, src, threshold, warn)
 
 	// Fill up to threshold + 1
 	for i := range threshold + 1 {
@@ -93,12 +93,12 @@ func TestUnboundWarn(t *testing.T) {
 }
 
 func TestMulticast(t *testing.T) {
-	ctx := tst.Go(t)
+	done := tst.Go(t).Done()
 	src := make(chan int)
-	m := chans.NewMulticast(ctx.Done(), src)
+	m := chans.NewMulticast(done, src)
 
-	s1 := m.Subscribe(ctx.Done())
-	s2 := m.Subscribe(ctx.Done())
+	s1 := m.Subscribe(done, 0)
+	s2 := m.Subscribe(done, 0)
 
 	go func() {
 		src <- 42
@@ -118,11 +118,11 @@ func TestMulticast(t *testing.T) {
 }
 
 func TestMulticastLateSubscribe(t *testing.T) {
-	ctx := tst.Go(t)
+	done := tst.Go(t).Done()
 	src := make(chan int)
-	m := chans.NewMulticast(ctx.Done(), src)
+	m := chans.NewMulticast(done, src)
 
-	s1 := m.Subscribe(ctx.Done())
+	s1 := m.Subscribe(done, 0)
 
 	go func() {
 		src <- 42
@@ -130,7 +130,7 @@ func TestMulticastLateSubscribe(t *testing.T) {
 
 	tst.Is(42, <-s1, t)
 
-	s2 := m.Subscribe(ctx.Done())
+	s2 := m.Subscribe(done, 0)
 	go func() {
 		src <- 43
 		close(src)
@@ -138,4 +138,32 @@ func TestMulticastLateSubscribe(t *testing.T) {
 
 	tst.Is(43, <-s1, t)
 	tst.Is(43, <-s2, t)
+}
+
+func TestMulticastUnsubscribe(t *testing.T) {
+	done := tst.Go(t).Done()
+	src := make(chan int)
+	m := chans.NewMulticast(done, src)
+
+	s1 := m.Subscribe(done, 0)
+
+	sub := make(chan struct{})
+	s2 := m.Subscribe(sub, 0)
+
+	go func() { src <- 1 }()
+
+	tst.Is(1, <-s1, t)
+	tst.Is(1, <-s2, t)
+
+	close(sub)
+	_, ok := <-s2
+	tst.Is(false, ok, t)
+
+	go func() { src <- 2 }()
+
+	tst.Is(2, <-s1, t)
+
+	close(src)
+	_, ok = <-s1
+	tst.Is(false, ok, t)
 }

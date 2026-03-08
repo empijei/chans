@@ -129,3 +129,28 @@ func Window[T any](done Done, src <-chan T, window time.Duration) <-chan T {
 	}()
 	return ret
 }
+
+// Concat concatenates a series of channels.
+func Concat[T any](done Done, srcs ...<-chan T) <-chan T {
+	ret := make(chan T)
+	go func() {
+		defer close(ret)
+	srcsLoop:
+		for _, src := range srcs {
+			for {
+				select {
+				case <-done:
+					return
+				case v, ok := <-src:
+					if !ok {
+						continue srcsLoop
+					}
+					if !TrySend(done, ret, v) {
+						return
+					}
+				}
+			}
+		}
+	}()
+	return ret
+}
