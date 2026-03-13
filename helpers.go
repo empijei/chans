@@ -6,10 +6,14 @@ import "time"
 type Done = <-chan struct{}
 
 // Sleep waits dur and returns.
-func Sleep(done Done, dur time.Duration) {
+//
+// It returns whether the time actually passed.
+func Sleep(done Done, dur time.Duration) (waited bool) {
 	select {
 	case <-done:
+		return false
 	case <-time.After(dur):
+		return true
 	}
 }
 

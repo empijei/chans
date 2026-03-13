@@ -5,9 +5,6 @@ import (
 	"time"
 )
 
-// TODO write in the docs that done means what it means.
-// TODO write that closure is propagated from src to returned chans.
-
 // TrySend tries to send the value, blocking.
 func TrySend[T any](done Done, sink chan<- T, v T) (ok bool) {
 	select {
